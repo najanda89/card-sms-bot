@@ -369,7 +369,6 @@ def main():
         last_rowid = process_missed_messages(last_rowid, seen_rowids)
 
     logging.info(f"👀 감시 중... (last_rowid={last_rowid})")
-    _notify(f"👀 SMS Watcher 감시 시작\n~/Library/Messages/chat.db 모니터링 중")
 
     MAX_SEEN     = 1000
     SEND_RETRIES = 3
