@@ -121,7 +121,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_co_total = new_by_co.get(card_company, 0)
 
     progress = monthly_progress_text(card_company, new_co_total) if parsed.get("거래유형") != "취소" else ""
-    full_text = message + progress + "\n\n👤🏠 개인/생활비를 선택해주세요:"
+    full_text = message + progress + "\n\n💬 이 메시지에 답장하면 메모 저장\n👤🏠 개인/생활비를 선택해주세요:"
     keyboard = build_type_keyboard(tx_id) if tx_id else None
     sent_msg = await update.message.reply_text(full_text, reply_markup=keyboard)
     if tx_id:
