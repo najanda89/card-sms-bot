@@ -27,7 +27,7 @@ from web import flask_app, run_flask, wait_for_flask
 from handlers import (
     start, handle_message,
     cmd_status, cmd_memo, cmd_edit, cmd_budget, cmd_restart, cmd_amount, cmd_help, cmd_skip,
-    cmd_watcher, cmd_reboot,
+    cmd_watcher, cmd_reboot, cmd_learn,
     handle_callback, cmd_export, cmd_limit, cmd_dev,
 )
 
@@ -102,6 +102,7 @@ def main():
     app.add_handler(CommandHandler("export",  cmd_export))
     app.add_handler(CommandHandler("amount",  cmd_amount))
     app.add_handler(CommandHandler("help",    cmd_help))
+    app.add_handler(CommandHandler("learn",   cmd_learn))
     app.add_handler(CommandHandler("skip",    cmd_skip))
     app.add_handler(CommandHandler("watcher", cmd_watcher))
     app.add_handler(CommandHandler("reboot",  cmd_reboot))

@@ -1,6 +1,68 @@
 import re
+import json
+import os
 from datetime import datetime
 from typing import Optional
+
+_LEARNED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "learned_patterns.json")
+
+
+def _load_learned() -> dict:
+    if not os.path.exists(_LEARNED_PATH):
+        return {}
+    try:
+        with open(_LEARNED_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_learned_pattern(company: str, pattern: dict):
+    """learned_patterns.json에 패턴 추가. 같은 카드사 여러 패턴 허용."""
+    data = _load_learned()
+    if company not in data:
+        data[company] = []
+    data[company].append(pattern)
+    with open(_LEARNED_PATH, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def _parse_learned(text: str) -> Optional[dict]:
+    """등록된 패턴으로 SMS 파싱 시도."""
+    data = _load_learned()
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    for company, patterns in data.items():
+        if company not in text:
+            continue
+        for p in patterns:
+            try:
+                amount_line = lines[p["amount_line"]]
+                m = re.search(r'([\d,]+)원', amount_line)
+                if not m:
+                    continue
+                amount = int(m.group(1).replace(",", ""))
+                result = {
+                    "카드사": company,
+                    "거래유형": p.get("tx_type", "승인"),
+                    "결제방식": p.get("tx_type", "승인") if p.get("tx_type") == "취소" else "일시불",
+                    "금액": amount,
+                }
+                # 날짜/시간
+                date_idx = p.get("date_line")
+                if date_idx is not None and date_idx < len(lines):
+                    date_line = lines[date_idx]
+                    dm = re.search(r'(\d{2}/\d{2})\s+(\d{2}:\d{2})', date_line)
+                    if dm:
+                        result["날짜"] = _convert_date(dm.group(1))
+                        result["시간"] = dm.group(2)
+                # 가맹점
+                merchant_idx = p.get("merchant_line")
+                if merchant_idx is not None and merchant_idx < len(lines):
+                    result["가맹점"] = lines[merchant_idx]
+                return result
+            except (IndexError, Exception):
+                continue
+    return None
 
 
 def _convert_date(mmdd: str) -> str:
@@ -170,7 +232,8 @@ def parse_card_message(text: str) -> Optional[dict]:
 
         return result
 
-    return None
+    # 기본 파서로 인식 못 하면 등록된 패턴으로 시도
+    return _parse_learned(text)
 
 
 def format_result(parsed: Optional[dict]) -> Optional[str]:

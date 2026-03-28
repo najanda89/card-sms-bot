@@ -18,12 +18,15 @@ from categories import CATEGORIES, CLASSIFICATIONS, build_type_keyboard, build_m
 
 # 카테고리 선택 후 메모 대기 상태 {chat_id: tx_id}
 pending_memo: dict = {}
+
+# /learn 대화 상태 {chat_id: {step, data}}
+learn_state: dict = {}
 from database import (
     update_memo, update_category, update_classification, update_amount,
     get_all_transactions, get_tx_id_by_msg_id, get_monthly_total_by_company,
     get_transactions_for_export, save_transaction, update_telegram_msg_id,
 )
-from parser import parse_card_message, format_result
+from parser import parse_card_message, format_result, save_learned_pattern
 from utils import (
     CHAT_ID,
     monthly_targets, find_company, save_targets,
@@ -35,8 +38,14 @@ from utils import (
 # ── /start ─────────────────────────────────────────────────────
 
 HELP_TEXT = (
-    "💳 카드 지출 봇 명령어\n"
+    "💳 카드 지출 봇 사용 안내\n"
     "━━━━━━━━━━━━━━━━━━━━\n\n"
+    "🚀 시작하기\n"
+    "1. 카드 결제 문자가 오면 자동으로 감지해요\n"
+    "2. 기본 지원: 광주카드, KB국민카드, 현대카드\n"
+    "3. 다른 카드사는 /learn 으로 직접 등록하세요\n\n"
+    "📲 카드사 패턴 등록\n"
+    "/learn — 새 카드사 문자 패턴 등록\n\n"
     "📝 내역 수정\n"
     "/memo 내용 — 최근 내역에 메모\n"
     "/memo [ID] 내용 — 특정 내역에 메모\n"
@@ -73,6 +82,11 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     chat_id = update.message.chat_id
+
+    # /learn 대화 진행 중
+    if chat_id in learn_state:
+        await _handle_learn_step(update, context, text)
+        return
 
     # 카테고리 선택 후 메모 대기 중이면 메모로 처리
     if chat_id in pending_memo:
@@ -114,6 +128,97 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update_telegram_msg_id(tx_id, sent_msg.message_id)
     check_and_notify_target(card_company, prev_co_total, new_co_total)
 
+
+# ── /learn ─────────────────────────────────────────────────────
+
+async def cmd_learn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.message.chat_id
+    learn_state[chat_id] = {"step": "waiting_sms"}
+    await update.message.reply_text(
+        "📲 새 카드사 문자 패턴 등록\n\n"
+        "카드 결제 문자를 그대로 붙여넣어 주세요.\n"
+        "(/cancel 로 취소)"
+    )
+
+
+async def _handle_learn_step(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str):
+    chat_id = update.message.chat_id
+    state = learn_state[chat_id]
+    step = state["step"]
+
+    if text.strip() == "/cancel":
+        learn_state.pop(chat_id, None)
+        await update.message.reply_text("❌ 패턴 등록이 취소됐어요.")
+        return
+
+    if step == "waiting_sms":
+        lines = [l for l in text.splitlines() if l.strip()]
+        if len(lines) < 2:
+            await update.message.reply_text("문자가 너무 짧아요. 다시 붙여넣어 주세요.")
+            return
+        state["sms"] = text
+        state["lines"] = lines
+        numbered = "\n".join(f"{i+1}. {l}" for i, l in enumerate(lines))
+        state["step"] = "waiting_company"
+        await update.message.reply_text(
+            f"📋 문자 내용:\n\n{numbered}\n\n"
+            "카드사 이름을 입력해주세요.\n예) 신한카드, 삼성카드, 우리카드"
+        )
+
+    elif step == "waiting_company":
+        state["company"] = text.strip()
+        state["step"] = "waiting_tx_type"
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ 승인", callback_data="learn_type:승인"),
+            InlineKeyboardButton("↩️ 취소", callback_data="learn_type:취소"),
+        ]])
+        await update.message.reply_text("이 문자는 승인인가요, 취소인가요?", reply_markup=keyboard)
+
+    elif step in ("waiting_amount_line", "waiting_date_line", "waiting_merchant_line"):
+        try:
+            idx = int(text.strip()) - 1
+            lines = state["lines"]
+            if idx < 0 or idx >= len(lines):
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text(f"1~{len(state['lines'])} 사이 숫자를 입력해주세요.")
+            return
+
+        numbered = "\n".join(f"{i+1}. {l}" for i, l in enumerate(state["lines"]))
+
+        if step == "waiting_amount_line":
+            state["amount_line"] = idx
+            state["step"] = "waiting_date_line"
+            await update.message.reply_text(
+                f"📋 문자 내용:\n\n{numbered}\n\n"
+                "날짜/시간이 있는 줄 번호는? (없으면 0 입력)"
+            )
+        elif step == "waiting_date_line":
+            state["date_line"] = idx if int(text.strip()) != 0 else None
+            state["step"] = "waiting_merchant_line"
+            await update.message.reply_text(
+                f"📋 문자 내용:\n\n{numbered}\n\n"
+                "가맹점(사용처)이 있는 줄 번호는?"
+            )
+        elif step == "waiting_merchant_line":
+            state["merchant_line"] = idx
+            # 저장
+            pattern = {
+                "tx_type": state["tx_type"],
+                "amount_line": state["amount_line"],
+                "date_line": state.get("date_line"),
+                "merchant_line": state["merchant_line"],
+            }
+            save_learned_pattern(state["company"], pattern)
+            learn_state.pop(chat_id, None)
+            await update.message.reply_text(
+                f"✅ '{state['company']}' 패턴이 등록됐어요!\n\n"
+                f"{'승인' if state['tx_type'] == '승인' else '취소'} 문자 형식 1개 저장.\n"
+                f"다른 형식(할부/취소 등)이 있으면 /learn 으로 추가 등록하세요."
+            )
+
+
+# learn 타입 선택 콜백은 handle_callback에서 처리
 
 # ── /status ────────────────────────────────────────────────────
 
@@ -450,6 +555,23 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     parts = data.split("_")
     action = parts[0]
+
+    if data.startswith("learn_type:"):
+        tx_type = data.split(":")[1]
+        chat_id = query.message.chat_id
+        state = learn_state.get(chat_id)
+        if not state:
+            await query.answer("세션이 만료됐어요. /learn 을 다시 실행해주세요.")
+            return
+        state["tx_type"] = tx_type
+        state["step"] = "waiting_amount_line"
+        numbered = "\n".join(f"{i+1}. {l}" for i, l in enumerate(state["lines"]))
+        await query.edit_message_text(
+            f"📋 문자 내용:\n\n{numbered}\n\n"
+            "금액이 있는 줄 번호는? (예: 4)"
+        )
+        await query.answer()
+        return
 
     if action == "watcher":
         sub = parts[1] if len(parts) > 1 else ""

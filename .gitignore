@@ -7,8 +7,9 @@ venv/
 # DB (개인 카드 내역)
 card_history.db
 
-# 상태 파일
+# 상태 파일 및 학습된 패턴 (개인 카드사 정보 포함)
 sms_watcher_state.json
+learned_patterns.json
 *.log
 *.pid
 .bot.pid
