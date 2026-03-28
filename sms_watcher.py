@@ -13,6 +13,8 @@ import shutil
 import tempfile
 import plistlib
 from datetime import datetime, timezone
+from dotenv import load_dotenv
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # ── 설정 ──────────────────────────────────────
 _HERE          = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +24,21 @@ STATE_FILE     = os.path.join(_HERE, "sms_watcher_state.json")
 PID_FILE       = "/tmp/sms_watcher.pid"
 CHECK_INTERVAL = 5      # 초마다 확인
 LOOKBACK_SEC   = 600    # 최근 N초 이내 메시지는 ROWID 관계없이 재확인
+
+def _notify(text: str):
+    """Telegram으로 간단한 알림 전송."""
+    token = os.getenv("TELEGRAM_TOKEN")
+    chat_id = os.getenv("CHAT_ID")
+    if not token or not chat_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": text},
+            timeout=5,
+        )
+    except Exception:
+        pass
 
 # sms_patterns.json에서 키워드 로드
 def _load_patterns():
@@ -352,6 +369,7 @@ def main():
         last_rowid = process_missed_messages(last_rowid, seen_rowids)
 
     logging.info(f"👀 감시 중... (last_rowid={last_rowid})")
+    _notify(f"👀 SMS Watcher 감시 시작\n~/Library/Messages/chat.db 모니터링 중")
 
     MAX_SEEN     = 1000
     SEND_RETRIES = 3
