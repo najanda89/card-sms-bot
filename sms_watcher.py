@@ -12,6 +12,7 @@ import logging
 import shutil
 import tempfile
 import plistlib
+import signal
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
@@ -346,6 +347,9 @@ def process_missed_messages(last_rowid: int, seen_rowids: set) -> int:
 
 def main():
     logging.info("🚀 SMS Watcher 시작")
+
+    # SIGTERM 수신 시 finally 블록이 실행되도록 SystemExit 발생
+    signal.signal(signal.SIGTERM, lambda s, f: (_ for _ in ()).throw(SystemExit(0)))
 
     if not acquire_pid_lock():
         return
