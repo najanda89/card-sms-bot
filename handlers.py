@@ -594,6 +594,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "📡 SMS Watcher 상태: ❌ 중단됨 (수동 중지)",
                 reply_markup=query.message.reply_markup
             )
+            await query.message.reply_text("⏹️ sms_watcher 중지됐어요.")
         elif sub == "restart":
             watcher_mod.restart_watcher()
             await query.answer("🔄 재시작!")

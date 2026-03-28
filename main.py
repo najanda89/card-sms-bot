@@ -8,6 +8,7 @@ import threading
 import os
 import sys
 import atexit
+import signal
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -111,7 +112,13 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("✅ 카드 SMS 봇 실행 중...")
-    app.run_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
+    try:
+        app.run_polling(drop_pending_updates=True, allowed_updates=["message", "callback_query"])
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        send_telegram_sync("🛑 카드 SMS 봇 종료됐어요.")
 
 
 if __name__ == "__main__":

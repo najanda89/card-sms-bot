@@ -418,6 +418,7 @@ def main():
             time.sleep(CHECK_INTERVAL)
     finally:
         release_pid_lock()
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         _notify("🛑 SMS Watcher 감시 종료")
 
 
