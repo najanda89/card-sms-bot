@@ -226,27 +226,6 @@ def update_amount(tx_id: int, amount: int, total_amount: int = None):
     conn.close()
 
 
-def update_classification(tx_id: int, classification: str):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE transactions SET classification = ? WHERE id = ?",
-        (classification, tx_id)
-    )
-    conn.commit()
-    conn.close()
-
-
-def update_category(tx_id: int, category: str, subcategory: str = ""):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE transactions SET category = ?, subcategory = ? WHERE id = ?",
-        (category, subcategory or "", tx_id)
-    )
-    conn.commit()
-    conn.close()
-
 
 def get_transactions_for_export(year_month: str = None):
     """year_month 형식: '2026-03' → date LIKE '2026.03.%'"""

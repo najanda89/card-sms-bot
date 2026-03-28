@@ -14,15 +14,10 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 import watcher as watcher_mod
-from categories import CATEGORIES, CLASSIFICATIONS, build_type_keyboard, build_main_keyboard, build_sub_keyboard
-
-# 카테고리 선택 후 메모 대기 상태 {chat_id: tx_id}
-pending_memo: dict = {}
-
 # /learn 대화 상태 {chat_id: {step, data}}
 learn_state: dict = {}
 from database import (
-    update_memo, update_category, update_classification, update_amount,
+    update_memo, update_amount,
     get_all_transactions, get_tx_id_by_msg_id, get_monthly_total_by_company,
     get_transactions_for_export, save_transaction, update_telegram_msg_id,
 )
@@ -49,8 +44,6 @@ HELP_TEXT = (
     "📝 내역 수정\n"
     "/memo 내용 — 최근 내역에 메모\n"
     "/memo [ID] 내용 — 특정 내역에 메모\n"
-    "/edit — 최근 내역 카테고리 수정\n"
-    "/edit [ID] — 특정 내역 카테고리 수정\n"
     "/amount — 최근 5개 내역 ID 조회\n"
     "/amount [금액] — 최근 내역 금액 수정\n"
     "/amount [ID] [금액] — 특정 내역 금액 수정\n"
@@ -88,13 +81,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _handle_learn_step(update, context, text)
         return
 
-    # 카테고리 선택 후 메모 대기 중이면 메모로 처리
-    if chat_id in pending_memo:
-        tx_id = pending_memo.pop(chat_id)
-        update_memo(tx_id, text)
-        await update.message.reply_text(f"✅ 메모 저장됐어요!\n📝 {text}")
-        return
-
     # 답장이면 메모로 처리
     if update.message.reply_to_message:
         replied_msg_id = update.message.reply_to_message.message_id
@@ -121,9 +107,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_co_total = new_by_co.get(card_company, 0)
 
     progress = monthly_progress_text(card_company, new_co_total) if parsed.get("거래유형") != "취소" else ""
-    full_text = message + progress + "\n\n💬 이 메시지에 답장하면 메모 저장\n👤🏠 개인/생활비를 선택해주세요:"
-    keyboard = build_type_keyboard(tx_id) if tx_id else None
-    sent_msg = await update.message.reply_text(full_text, reply_markup=keyboard)
+    full_text = message + progress + "\n\n💬 이 메시지에 답장하면 메모 저장"
+    sent_msg = await update.message.reply_text(full_text)
     if tx_id:
         update_telegram_msg_id(tx_id, sent_msg.message_id)
     check_and_notify_target(card_company, prev_co_total, new_co_total)
@@ -269,51 +254,6 @@ async def cmd_memo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📝 {memo_text}\n"
         f"└ {target.get('merchant', '-')} · {target.get('amount', 0):,}원"
     )
-
-
-# ── /edit ──────────────────────────────────────────────────────
-
-async def cmd_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    txs = get_all_transactions()
-    if not txs:
-        await update.message.reply_text("저장된 내역이 없어요.")
-        return
-
-    if context.args:
-        try:
-            tx_id = int(context.args[0])
-        except ValueError:
-            await update.message.reply_text("사용법: /edit 또는 /edit [내역ID]")
-            return
-        tx = next((t for t in txs if t["id"] == tx_id), None)
-        if not tx:
-            await update.message.reply_text(f"ID {tx_id} 내역을 찾을 수 없어요.")
-            return
-        cat_text = tx.get("category", "")
-        if tx.get("subcategory"):
-            cat_text += " > " + tx["subcategory"]
-        await update.message.reply_text(
-            f"✏️ 카테고리 재선택\n"
-            f"🏪 {tx.get('merchant', '-')}\n"
-            f"💰 {tx.get('amount', 0):,}원\n"
-            f"📂 현재: {cat_text or '없음'}\n\n"
-            f"카테고리를 선택해주세요:",
-            reply_markup=build_main_keyboard(tx_id)
-        )
-    else:
-        rows = []
-        for t in txs[:5]:
-            cat = t.get("category", "")
-            if t.get("subcategory"):
-                cat += " > " + t["subcategory"]
-            label = f"{t.get('date', '')} {t.get('merchant', '-')} {t.get('amount', 0):,}원"
-            if cat:
-                label += f" [{cat}]"
-            rows.append([InlineKeyboardButton(label, callback_data=f"recat_{t['id']}")])
-        await update.message.reply_text(
-            "✏️ 카테고리 수정할 내역을 선택하세요:",
-            reply_markup=InlineKeyboardMarkup(rows)
-        )
 
 
 # ── /budget ────────────────────────────────────────────────────
@@ -608,91 +548,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer("⏭️ 건너뛰었어요")
         await query.edit_message_reply_markup(reply_markup=None)
 
-    elif action == "t":
-        # 개인(0) / 생활비(1) 선택
-        try:
-            tx_id, type_idx = int(parts[1]), int(parts[2])
-            cls_name = CLASSIFICATIONS[type_idx]  # "👤 개인" or "🏠 생활비"
-            await query.answer(f"{cls_name} 선택!")   # 먼저 응답 → 버튼 먹통 방지
-            update_classification(tx_id, cls_name)
-            orig_text = query.message.text or ""
-            base_text = orig_text.rsplit("\n\n", 1)[0]  # 마지막 안내줄 제거
-            await query.edit_message_text(
-                base_text + f"\n\n{cls_name} ✅  |  📂 카테고리를 선택해주세요:",
-                reply_markup=build_main_keyboard(tx_id)
-            )
-        except Exception as e:
-            logger.error(f"분류 선택 오류 (data={data}): {e}", exc_info=True)
-
-    elif action == "typeback":
-        tx_id = int(parts[1])
-        await query.answer()
-        await query.edit_message_text(
-            query.message.text.rsplit("\n", 1)[0] + "\n\n👤🏠 개인/생활비를 선택해주세요:",
-            reply_markup=build_type_keyboard(tx_id)
-        )
-
-    elif action == "back":
-        tx_id = int(parts[1])
-        await query.answer()
-        await query.edit_message_reply_markup(reply_markup=build_main_keyboard(tx_id))
-
-    elif action == "recat":
-        tx_id = int(parts[1])
-        txs = get_all_transactions()
-        tx = next((t for t in txs if t["id"] == tx_id), None)
-        cat_text = ""
-        if tx:
-            cat_text = tx.get("category", "")
-            if tx.get("subcategory"):
-                cat_text += " > " + tx["subcategory"]
-        info = (
-            f"✏️ 카테고리 재선택\n"
-            f"🏪 {tx.get('merchant', '-') if tx else '-'} · {tx.get('amount', 0):,}원\n"
-            f"📂 현재: {cat_text or '없음'}\n\n카테고리를 선택해주세요:"
-        ) if tx else "✏️ 카테고리 재선택"
-        await query.answer()
-        await query.edit_message_text(info, reply_markup=build_main_keyboard(tx_id))
-
-    elif action == "m":
-        tx_id, main_idx = int(parts[1]), int(parts[2])
-        main_name, sub_cats = CATEGORIES[main_idx]
-        if not sub_cats:
-            update_category(tx_id, main_name)
-            await query.answer("✅ 저장!")
-            await query.edit_message_reply_markup(reply_markup=None)
-            pending_memo[query.message.chat_id] = tx_id
-            # 분류 정보 조회
-            txs = get_all_transactions()
-            tx = next((t for t in txs if t["id"] == tx_id), None)
-            cls = tx.get("classification", "") if tx else ""
-            cls_str = f"{cls}  /  " if cls else ""
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=f"📂 {cls_str}{main_name} 저장됐어요!\n\n💬 메모를 입력하세요 (건너뛰려면 /skip)"
-            )
-        else:
-            await query.answer()
-            await query.edit_message_reply_markup(reply_markup=build_sub_keyboard(tx_id, main_idx))
-
-    elif action == "s":
-        tx_id, main_idx, sub_idx = int(parts[1]), int(parts[2]), int(parts[3])
-        main_name, sub_cats = CATEGORIES[main_idx]
-        sub_name = sub_cats[sub_idx]
-        update_category(tx_id, main_name, sub_name)
-        await query.answer("✅ 저장!")
-        await query.edit_message_reply_markup(reply_markup=None)
-        pending_memo[query.message.chat_id] = tx_id
-        # 분류 정보 조회
-        txs = get_all_transactions()
-        tx = next((t for t in txs if t["id"] == tx_id), None)
-        cls = tx.get("classification", "") if tx else ""
-        cls_str = f"{cls}  /  " if cls else ""
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text=f"📂 {cls_str}{main_name} > {sub_name} 저장됐어요!\n\n💬 메모를 입력하세요 (건너뛰려면 /skip)"
-        )
-
 
 # ── /export ────────────────────────────────────────────────────
 
@@ -707,16 +562,14 @@ async def cmd_export(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["날짜", "금액", "분류", "소분류", "자산", "내용", "메모", "유형"])
+    writer.writerow(["날짜", "금액", "카드사", "가맹점", "메모", "유형"])
     for t in txs:
         writer.writerow([
             t.get("date", ""),
             t.get("total_amount") or t.get("amount", 0),
-            t.get("category", ""),
-            t.get("subcategory", ""),
             t.get("card_company", ""),
-            t.get("memo", ""),
             t.get("merchant", ""),
+            t.get("memo", ""),
             t.get("tx_type", "승인"),
         ])
 

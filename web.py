@@ -10,12 +10,10 @@ import urllib.request
 from flask import Flask, request, jsonify, send_from_directory
 import os
 
-from categories import CATEGORIES, build_type_keyboard_dict
 from database import (
     save_transaction, update_memo, update_merchant, update_telegram_msg_id,
     get_all_transactions, get_monthly_total_by_company,
-    update_category, update_amount, delete_transaction, delete_all_transactions,
-    update_classification,
+    update_amount, delete_transaction, delete_all_transactions,
 )
 from parser import parse_card_message, format_result, extract_cumulative
 from utils import (
@@ -176,19 +174,6 @@ def save_merchant_route(tx_id):
     update_merchant(tx_id, data.get("merchant", ""))
     return jsonify({"ok": True})
 
-
-@flask_app.route("/category/<int:tx_id>", methods=["POST"])
-def save_category_route(tx_id):
-    data = request.get_json()
-    update_category(tx_id, data.get("category", ""), data.get("subcategory") or "")
-    return jsonify({"ok": True})
-
-
-@flask_app.route("/classification/<int:tx_id>", methods=["POST"])
-def save_classification_route(tx_id):
-    data = request.get_json()
-    update_classification(tx_id, data.get("classification", ""))
-    return jsonify({"ok": True})
 
 
 @flask_app.route("/amount/<int:tx_id>", methods=["POST"])

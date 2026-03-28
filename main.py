@@ -27,7 +27,7 @@ from scheduler import run_scheduler
 from web import flask_app, run_flask, wait_for_flask
 from handlers import (
     start, handle_message,
-    cmd_status, cmd_memo, cmd_edit, cmd_budget, cmd_restart, cmd_amount, cmd_help, cmd_skip,
+    cmd_status, cmd_memo, cmd_budget, cmd_restart, cmd_amount, cmd_help, cmd_skip,
     cmd_watcher, cmd_reboot, cmd_learn,
     handle_callback, cmd_export, cmd_limit, cmd_dev,
 )
@@ -97,7 +97,6 @@ def main():
     app.add_handler(CommandHandler("status",  cmd_status))
     app.add_handler(CommandHandler("restart", cmd_restart))
     app.add_handler(CommandHandler("memo",    cmd_memo))
-    app.add_handler(CommandHandler("edit",    cmd_edit))
     app.add_handler(CommandHandler("budget",  cmd_budget))
     app.add_handler(CommandHandler("limit",   cmd_limit))
     app.add_handler(CommandHandler("export",  cmd_export))
